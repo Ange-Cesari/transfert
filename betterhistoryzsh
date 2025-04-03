@@ -9,26 +9,29 @@ setopt EXTENDED_HISTORY
 setopt HIST_IGNORE_SPACE
 unsetopt HIST_IGNORE_ALL_DUPS
 
-# === FICHIER ENRICHI ===
+# === FICHIER ENRICHI SÉPARÉ ===
 ZSH_ENRICHED_HISTORY="$HOME/.zsh_history_enriched"
+ZSH_CONTEXT_REPEAT_INTERVAL=100  # ← Contexte rappelé après N commandes max
 
+# Création sécurisée du fichier
 if [ ! -f "$ZSH_ENRICHED_HISTORY" ]; then
   touch "$ZSH_ENRICHED_HISTORY"
   chmod 600 "$ZSH_ENRICHED_HISTORY"
 fi
 
 # === COULEURS PERSONNALISABLES ===
-COLOR_CONTEXT="\033[1;31m"      # Rouge
-COLOR_TIMESTAMP="\033[38;5;214m" # Orange
-COLOR_CMD_NUM="\033[1;36m"       # Cyan
-COLOR_OK="\033[1;32m"            # Vert
-COLOR_FAIL="\033[1;31m"          # Rouge
+COLOR_CONTEXT="\033[1;31m"        # Rouge
+COLOR_TIMESTAMP="\033[38;5;214m"  # Orange
+COLOR_CMD_NUM="\033[1;36m"        # Cyan
+COLOR_OK="\033[1;32m"             # Vert
+COLOR_FAIL="\033[1;31m"           # Rouge
 COLOR_RESET="\033[0m"
 
-# === VARIABLES INTERNES ===
+# === VARIABLES DE SESSION ===
 zsh_last_command=""
 zsh_last_context=""
 
+# Détection du contexte
 zsh_context() {
   if [[ -n "$CONTAINER_ID" ]]; then
     [[ "$CONTAINER_ID" == "host" ]] && echo "host-distro" || echo "$CONTAINER_ID"
@@ -37,10 +40,12 @@ zsh_context() {
   fi
 }
 
+# Capture la commande avant exécution
 preexec() {
   zsh_last_command="$1"
 }
 
+# Ajout enrichi après exécution
 precmd() {
   local CONTEXT=$(zsh_context)
   local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -48,22 +53,32 @@ precmd() {
   local CONTEXT_LINE="# CONTEXT ($CONTEXT)"
 
   if [[ -n "$zsh_last_command" ]]; then
-    local LAST_CONTEXT=$(tail -n 10 "$ZSH_ENRICHED_HISTORY" | grep '# CONTEXT' | tail -n 1)
-    if [[ "$CONTEXT_LINE" != "$LAST_CONTEXT" ]]; then
+    # Vérifie le dernier contexte et combien de commandes depuis
+    local LAST_CONTEXT_INFO=$(awk '/^# CONTEXT/ { ctx=$0; count=0; next }
+                                   /^[^#]/ { count++ }
+                                   END { print ctx; print count }' "$ZSH_ENRICHED_HISTORY")
+    local LAST_CTX_LINE=$(echo "$LAST_CONTEXT_INFO" | head -n 1)
+    local COUNT_SINCE_LAST_CTX=$(echo "$LAST_CONTEXT_INFO" | tail -n 1)
+
+    if [[ "$LAST_CTX_LINE" != "$CONTEXT_LINE" ]] || (( COUNT_SINCE_LAST_CTX >= ZSH_CONTEXT_REPEAT_INTERVAL )); then
       print -r -- "$CONTEXT_LINE" >> "$ZSH_ENRICHED_HISTORY"
     fi
 
     print -r -- "# $TIMESTAMP (exit=$EXIT_CODE)" >> "$ZSH_ENRICHED_HISTORY"
     print -r -- "$zsh_last_command" >> "$ZSH_ENRICHED_HISTORY"
+
     unset zsh_last_command
   fi
 
   zsh_last_context="$CONTEXT"
 }
 
-# === FONCTION HISTORY COLORISÉE ===
+# === AFFICHAGE COLORISÉ AVEC NUMÉROTATION ===
+
+# Supprime alias `history` si existant
 unalias history 2>/dev/null
 
+# Fonction personnalisée
 zsh-history() {
   local line_number=1
   while IFS= read -r line; do
@@ -82,4 +97,5 @@ zsh-history() {
   done < "$ZSH_ENRICHED_HISTORY"
 }
 
+# Redirige `history` vers zsh-history
 alias history='zsh-history'
