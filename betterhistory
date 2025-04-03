@@ -1,0 +1,56 @@
+if [ -n "$PS1" ]; then
+  # Détecte le contexte (distrobox ou host)
+  if [ -n "$CONTAINER_ID" ]; then
+    if [ "$CONTAINER_ID" = "host" ]; then
+      CURRENT_CONTEXT="host-distro"
+    else
+      CURRENT_CONTEXT="$CONTAINER_ID"
+    fi
+  else
+    CURRENT_CONTEXT="host"
+  fi
+
+  # Fichier principal de l'historique
+  HISTORY_FILE="$HOME/.bash_history"
+  export HISTFILE="$HISTORY_FILE"
+  export HISTSIZE=10000
+  export HISTFILESIZE=20000
+  export HISTCONTROL=ignoredups:ignorespace
+  shopt -s histappend
+
+  # Assure que le fichier d'historique existe
+  [ -f "$HISTFILE" ] || { touch "$HISTFILE"; chmod 600 "$HISTFILE"; }
+
+  # Variable temporaire pour stocker la dernière commande
+  __LAST_CMD=""
+
+  # Trap DEBUG : capture la commande juste avant exécution
+  trap '__CMD=$(HISTTIMEFORMAT= history 1 | sed "s/^ *[0-9]\+ *//");
+        if [ -n "$__CMD" ] && [[ "$__CMD" != \#* ]]; then
+          __LAST_CMD="$__CMD"
+        fi' DEBUG
+
+  # PROMPT_COMMAND : déclenché juste après la commande
+  PROMPT_COMMAND='
+    history -n
+    if [ -n "$__LAST_CMD" ]; then
+      TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+      HISTORY_TAG="# $TIMESTAMP - $CURRENT_CONTEXT"
+      LAST_LINE=$(tail -n 1 "$HISTFILE" 2>/dev/null || echo "")
+
+      if [[ "$LAST_LINE" != "$HISTORY_TAG" ]]; then
+        echo "$HISTORY_TAG" >> "$HISTFILE"
+      fi
+
+      echo "$__LAST_CMD" >> "$HISTFILE"
+
+      # Si la commande a échoué (code != 0), log dans un fichier à part
+      if [ "$?" -ne 0 ]; then
+        FAIL_LOG="$HOME/.bash_failures.log"
+        echo "[$TIMESTAMP] [$CURRENT_CONTEXT] $__LAST_CMD  # exit=$?" >> "$FAIL_LOG"
+      fi
+
+      unset __LAST_CMD
+    fi
+  '
+fi
