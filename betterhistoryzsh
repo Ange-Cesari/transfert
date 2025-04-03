@@ -1,4 +1,4 @@
-# === Historique enrichi Zsh (.zsh_history), sans polluer l'interactif ===
+# === Historique enrichi Zsh : CONTEXT (xxx) et timestamps ===
 
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=10000
@@ -10,12 +10,9 @@ setopt EXTENDED_HISTORY
 setopt HIST_IGNORE_SPACE
 unsetopt HIST_IGNORE_ALL_DUPS
 
-# Variables de session
 zsh_last_command=""
 zsh_last_context=""
-zsh_last_exit_code=0
 
-# Contexte : distrobox ou host
 zsh_context() {
   if [[ -n "$CONTAINER_ID" ]]; then
     [[ "$CONTAINER_ID" == "host" ]] && echo "host-distro" || echo "$CONTAINER_ID"
@@ -24,20 +21,17 @@ zsh_context() {
   fi
 }
 
-# Capture de la commande juste avant exécution
 preexec() {
   zsh_last_command="$1"
 }
 
-# Ajout manuel enrichi dans le fichier
 precmd() {
   local CONTEXT=$(zsh_context)
   local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
   local EXIT_CODE=$?
 
-  # Si changement de contexte
   if [[ "$CONTEXT" != "$zsh_last_context" ]]; then
-    print -r -- "# $CONTEXT" >> "$HISTFILE"
+    print -r -- "# CONTEXT ($CONTEXT)" >> "$HISTFILE"
     zsh_last_context="$CONTEXT"
   fi
 
