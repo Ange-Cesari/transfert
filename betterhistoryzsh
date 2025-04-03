@@ -1,4 +1,4 @@
-# === CONFIG HISTORIQUE INTERACTIF ZSH (propre pour ↑) ===
+# === CONFIG HISTORIQUE INTERACTIF ZSH ===
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=10000
 export SAVEHIST=20000
@@ -9,20 +9,26 @@ setopt EXTENDED_HISTORY
 setopt HIST_IGNORE_SPACE
 unsetopt HIST_IGNORE_ALL_DUPS
 
-# === HISTORIQUE ENRICHI SÉPARÉ ===
+# === FICHIER ENRICHI ===
 ZSH_ENRICHED_HISTORY="$HOME/.zsh_history_enriched"
 
-# Créer le fichier enrichi s’il n'existe pas
 if [ ! -f "$ZSH_ENRICHED_HISTORY" ]; then
   touch "$ZSH_ENRICHED_HISTORY"
   chmod 600 "$ZSH_ENRICHED_HISTORY"
 fi
 
-# Variables internes
+# === COULEURS PERSONNALISABLES ===
+COLOR_CONTEXT="\033[1;31m"      # Rouge
+COLOR_TIMESTAMP="\033[38;5;214m" # Orange
+COLOR_CMD_NUM="\033[1;36m"       # Cyan
+COLOR_OK="\033[1;32m"            # Vert
+COLOR_FAIL="\033[1;31m"          # Rouge
+COLOR_RESET="\033[0m"
+
+# === VARIABLES INTERNES ===
 zsh_last_command=""
 zsh_last_context=""
 
-# Détecte le contexte courant
 zsh_context() {
   if [[ -n "$CONTAINER_ID" ]]; then
     [[ "$CONTAINER_ID" == "host" ]] && echo "host-distro" || echo "$CONTAINER_ID"
@@ -31,56 +37,49 @@ zsh_context() {
   fi
 }
 
-# Capture la commande avant exécution
 preexec() {
   zsh_last_command="$1"
 }
 
-# Après exécution, on écrit dans le fichier enrichi
 precmd() {
   local CONTEXT=$(zsh_context)
   local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
   local EXIT_CODE=$?
   local CONTEXT_LINE="# CONTEXT ($CONTEXT)"
 
-  # Ajoute le contexte s’il a changé ou s’il n’existe pas encore
-  local LAST_LINE="$(tail -n 1 "$ZSH_ENRICHED_HISTORY" 2>/dev/null || echo "")"
-  if [[ "$CONTEXT" != "$zsh_last_context" ]] || [[ "$LAST_LINE" == "$CONTEXT_LINE" ]]; then
-    print -r -- "$CONTEXT_LINE" >> "$ZSH_ENRICHED_HISTORY"
-    zsh_last_context="$CONTEXT"
-  fi
-
   if [[ -n "$zsh_last_command" ]]; then
+    local LAST_CONTEXT=$(tail -n 10 "$ZSH_ENRICHED_HISTORY" | grep '# CONTEXT' | tail -n 1)
+    if [[ "$CONTEXT_LINE" != "$LAST_CONTEXT" ]]; then
+      print -r -- "$CONTEXT_LINE" >> "$ZSH_ENRICHED_HISTORY"
+    fi
+
     print -r -- "# $TIMESTAMP (exit=$EXIT_CODE)" >> "$ZSH_ENRICHED_HISTORY"
     print -r -- "$zsh_last_command" >> "$ZSH_ENRICHED_HISTORY"
+    unset zsh_last_command
   fi
 
-  unset zsh_last_command
+  zsh_last_context="$CONTEXT"
 }
 
-# === AFFICHAGE COLORISÉ DE L’HISTORIQUE ENRICHI ===
-
-# Supprime alias ou builtin `history` s’il existe
+# === FONCTION HISTORY COLORISÉE ===
 unalias history 2>/dev/null
 
-# Fonction personnalisée avec couleurs et numérotation
 zsh-history() {
   local line_number=1
   while IFS= read -r line; do
     if [[ "$line" == \#\ CONTEXT* ]]; then
-      printf "\033[1;31m%s\033[0m\n" "$line"  # Rouge
+      printf "${COLOR_CONTEXT}%s${COLOR_RESET}\n" "$line"
     elif [[ "$line" =~ ^#\ [0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
       if [[ "$line" =~ exit=0 ]]; then
-        printf "\033[38;5;214m%s\033[0m \033[1;32m✔\033[0m\n" "$line"  # Orange + vert
+        printf "${COLOR_TIMESTAMP}%s${COLOR_RESET} ${COLOR_OK}✔${COLOR_RESET}\n" "$line"
       else
-        printf "\033[38;5;214m%s\033[0m \033[1;31m✘\033[0m\n" "$line"  # Orange + rouge
+        printf "${COLOR_TIMESTAMP}%s${COLOR_RESET} ${COLOR_FAIL}✘${COLOR_RESET}\n" "$line"
       fi
     elif [[ -n "$line" ]]; then
-      printf "\033[1;36m%5d\033[0m  %s\n" "$line_number" "$line"  # Cyan clair
+      printf "${COLOR_CMD_NUM}%5d${COLOR_RESET}  %s\n" "$line_number" "$line"
       ((line_number++))
     fi
   done < "$ZSH_ENRICHED_HISTORY"
 }
 
-# Remplace `history` par notre version enrichie
 alias history='zsh-history'
