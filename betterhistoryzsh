@@ -1,5 +1,4 @@
-# === Historique enrichi Zsh : CONTEXT (xxx) et timestamps ===
-
+# === HISTORIQUE INTERACTIF NORMAL ===
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=10000
 export SAVEHIST=20000
@@ -10,9 +9,20 @@ setopt EXTENDED_HISTORY
 setopt HIST_IGNORE_SPACE
 unsetopt HIST_IGNORE_ALL_DUPS
 
+# === FICHIER ENRICHI SÉPARÉ ===
+ZSH_ENRICHED_HISTORY="$HOME/.zsh_history_enriched"
+
+# Création sécurisée du fichier enrichi
+if [ ! -f "$ZSH_ENRICHED_HISTORY" ]; then
+  touch "$ZSH_ENRICHED_HISTORY"
+  chmod 600 "$ZSH_ENRICHED_HISTORY"
+fi
+
+# Variables de suivi
 zsh_last_command=""
 zsh_last_context=""
 
+# Détecte le contexte (host, distrobox, etc.)
 zsh_context() {
   if [[ -n "$CONTAINER_ID" ]]; then
     [[ "$CONTAINER_ID" == "host" ]] && echo "host-distro" || echo "$CONTAINER_ID"
@@ -21,24 +31,29 @@ zsh_context() {
   fi
 }
 
+# Capture la commande juste avant exécution
 preexec() {
   zsh_last_command="$1"
 }
 
+# Enregistre enrichi dans le fichier séparé
 precmd() {
   local CONTEXT=$(zsh_context)
   local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
   local EXIT_CODE=$?
 
   if [[ "$CONTEXT" != "$zsh_last_context" ]]; then
-    print -r -- "# CONTEXT ($CONTEXT)" >> "$HISTFILE"
+    print -r -- "# CONTEXT ($CONTEXT)" >> "$ZSH_ENRICHED_HISTORY"
     zsh_last_context="$CONTEXT"
   fi
 
   if [[ -n "$zsh_last_command" ]]; then
-    print -r -- "# $TIMESTAMP (exit=$EXIT_CODE)" >> "$HISTFILE"
-    print -r -- "$zsh_last_command" >> "$HISTFILE"
+    print -r -- "# $TIMESTAMP (exit=$EXIT_CODE)" >> "$ZSH_ENRICHED_HISTORY"
+    print -r -- "$zsh_last_command" >> "$ZSH_ENRICHED_HISTORY"
   fi
 
   unset zsh_last_command
 }
+
+# Alias `history` vers le fichier enrichi
+alias history='cat ~/.zsh_history_enriched'
