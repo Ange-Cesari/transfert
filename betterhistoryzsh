@@ -1,4 +1,5 @@
-# === HISTORIQUE INTERACTIF NORMAL ===
+# === ZSH HISTORIQUE AVANCÉ : enrichi, contextuel, colorisé ===
+
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=10000
 export SAVEHIST=20000
@@ -9,20 +10,20 @@ setopt EXTENDED_HISTORY
 setopt HIST_IGNORE_SPACE
 unsetopt HIST_IGNORE_ALL_DUPS
 
-# === FICHIER ENRICHI SÉPARÉ ===
+# Fichier enrichi séparé
 ZSH_ENRICHED_HISTORY="$HOME/.zsh_history_enriched"
 
-# Création sécurisée du fichier enrichi
+# Créer le fichier enrichi s’il n'existe pas
 if [ ! -f "$ZSH_ENRICHED_HISTORY" ]; then
   touch "$ZSH_ENRICHED_HISTORY"
   chmod 600 "$ZSH_ENRICHED_HISTORY"
 fi
 
-# Variables de suivi
+# Variables de session
 zsh_last_command=""
 zsh_last_context=""
 
-# Détecte le contexte (host, distrobox, etc.)
+# Détecte le contexte actuel (host ou CONTAINER_ID)
 zsh_context() {
   if [[ -n "$CONTAINER_ID" ]]; then
     [[ "$CONTAINER_ID" == "host" ]] && echo "host-distro" || echo "$CONTAINER_ID"
@@ -36,17 +37,21 @@ preexec() {
   zsh_last_command="$1"
 }
 
-# Enregistre enrichi dans le fichier séparé
+# Juste après l'exécution d'une commande
 precmd() {
   local CONTEXT=$(zsh_context)
   local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
   local EXIT_CODE=$?
+  local CONTEXT_LINE="# CONTEXT ($CONTEXT)"
 
-  if [[ "$CONTEXT" != "$zsh_last_context" ]]; then
-    print -r -- "# CONTEXT ($CONTEXT)" >> "$ZSH_ENRICHED_HISTORY"
+  # Ajoute le bloc CONTEXT si nécessaire
+  local LAST_LINE="$(tail -n 1 "$ZSH_ENRICHED_HISTORY" 2>/dev/null || echo "")"
+  if [[ "$CONTEXT" != "$zsh_last_context" ]] || [[ "$LAST_LINE" == "$CONTEXT_LINE" ]]; then
+    print -r -- "$CONTEXT_LINE" >> "$ZSH_ENRICHED_HISTORY"
     zsh_last_context="$CONTEXT"
   fi
 
+  # Ajoute la commande si présente
   if [[ -n "$zsh_last_command" ]]; then
     print -r -- "# $TIMESTAMP (exit=$EXIT_CODE)" >> "$ZSH_ENRICHED_HISTORY"
     print -r -- "$zsh_last_command" >> "$ZSH_ENRICHED_HISTORY"
@@ -55,5 +60,21 @@ precmd() {
   unset zsh_last_command
 }
 
-# Alias `history` vers le fichier enrichi
-alias history='cat ~/.zsh_history_enriched'
+# Redéfinit la commande history pour afficher le fichier enrichi colorisé
+history() {
+  local line_number=1
+  while IFS= read -r line; do
+    if [[ "$line" == \#\ CONTEXT* ]]; then
+      printf "\033[1;31m%s\033[0m\n" "$line"  # Rouge
+    elif [[ "$line" =~ ^#\ [0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
+      if [[ "$line" =~ exit=0 ]]; then
+        printf "\033[38;5;214m%s\033[0m \033[1;32m✔\033[0m\n" "$line"  # Orange + vert
+      else
+        printf "\033[38;5;214m%s\033[0m \033[1;31m✘\033[0m\n" "$line"  # Orange + rouge
+      fi
+    elif [[ -n "$line" ]]; then
+      printf "\033[1;36m%5d\033[0m  %s\n" "$line_number" "$line"  # Cyan + commande
+      ((line_number++))
+    fi
+  done < "$ZSH_ENRICHED_HISTORY"
+}
