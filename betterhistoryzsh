@@ -1,4 +1,4 @@
-# === Zsh enrichi : historique avec #tags, mais interaction propre ===
+# === Historique enrichi Zsh (.zsh_history), sans polluer l'interactif ===
 
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=10000
@@ -8,16 +8,14 @@ setopt APPEND_HISTORY
 setopt INC_APPEND_HISTORY
 setopt EXTENDED_HISTORY
 setopt HIST_IGNORE_SPACE
-
-# Pas de dups supprimés volontairement
 unsetopt HIST_IGNORE_ALL_DUPS
 
-# Variables pour suivi
+# Variables de session
 zsh_last_command=""
 zsh_last_context=""
 zsh_last_exit_code=0
 
-# Détection dynamique du contexte
+# Contexte : distrobox ou host
 zsh_context() {
   if [[ -n "$CONTAINER_ID" ]]; then
     [[ "$CONTAINER_ID" == "host" ]] && echo "host-distro" || echo "$CONTAINER_ID"
@@ -26,45 +24,27 @@ zsh_context() {
   fi
 }
 
-# Capture commande avant exécution
+# Capture de la commande juste avant exécution
 preexec() {
   zsh_last_command="$1"
 }
 
-# Hook principal : enrichit ~/.zsh_history
+# Ajout manuel enrichi dans le fichier
 precmd() {
   local CONTEXT=$(zsh_context)
   local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
   local EXIT_CODE=$?
 
-  # Contexte changé ?
+  # Si changement de contexte
   if [[ "$CONTEXT" != "$zsh_last_context" ]]; then
     print -r -- "# $CONTEXT" >> "$HISTFILE"
     zsh_last_context="$CONTEXT"
   fi
 
-  # Ajoute timestamp + commande
   if [[ -n "$zsh_last_command" ]]; then
     print -r -- "# $TIMESTAMP (exit=$EXIT_CODE)" >> "$HISTFILE"
     print -r -- "$zsh_last_command" >> "$HISTFILE"
   fi
 
-  # Réinitialise
   unset zsh_last_command
 }
-
-# === Important : charger l’historique en filtrant les lignes commençant par #
-autoload -Uz add-zsh-hook
-
-add-zsh-hook -Uz zs_filter_history_on_load() {
-  # Recharge HISTFILE, en supprimant lignes commençant par #
-  fc -R "$HISTFILE"
-  HISTNO=1
-  local -a filtered
-  for entry in ${(f)"$(fc -l 1)"}; do
-    [[ "$entry" != \#* ]] && filtered+="$entry"
-  done
-  print -rl -- $filtered >| "$HISTFILE.filtered"
-  fc -p "$HISTFILE.filtered" "$HISTFILE.filtered" "$HISTFILE.filtered"
-}
-zs_filter_history_on_load
