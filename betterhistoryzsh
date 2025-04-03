@@ -1,0 +1,60 @@
+# === Historique enrichi ZSH avec contexte et erreurs ===
+
+# Contexte : nom de la distrobox ou "host"
+if [[ -n "$CONTAINER_ID" ]]; then
+  if [[ "$CONTAINER_ID" == "host" ]]; then
+    CURRENT_CONTEXT="host-distro"
+  else
+    CURRENT_CONTEXT="$CONTAINER_ID"
+  fi
+else
+  CURRENT_CONTEXT="host"
+fi
+
+# Chemins des fichiers
+export HISTFILE="$HOME/.zsh_history"
+export HISTSIZE=10000
+export SAVEHIST=20000
+FAIL_LOG="$HOME/.zsh_failures.log"
+
+# Options d'historique ZSH
+setopt APPEND_HISTORY
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_IGNORE_SPACE
+setopt SHARE_HISTORY
+setopt EXTENDED_HISTORY
+
+# Variable temporaire pour stocker la dernière commande
+zsh_last_command=""
+
+# Fonction appelée juste avant chaque commande
+preexec() {
+  zsh_last_command="$1"
+}
+
+# Fonction appelée juste avant l'affichage du prompt (donc après exécution)
+precmd() {
+  if [[ -n "$zsh_last_command" ]]; then
+    local TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+    local HISTORY_TAG="# $TIMESTAMP - $CURRENT_CONTEXT"
+
+    # Dernière ligne actuelle du fichier
+    local LAST_LINE="$(tail -n 1 "$HISTFILE" 2>/dev/null || echo "")"
+
+    # Ajoute le bloc si le tag est absent ou différent
+    if [[ "$LAST_LINE" != "$HISTORY_TAG" ]]; then
+      echo "$HISTORY_TAG" >> "$HISTFILE"
+    fi
+
+    # Ajoute la commande elle-même (pas via add-zsh-hook pour éviter duplication)
+    echo "$zsh_last_command" >> "$HISTFILE"
+
+    # Si la commande a échoué
+    if [[ "$?" -ne 0 ]]; then
+      echo "[$TIMESTAMP] [$CURRENT_CONTEXT] $zsh_last_command  # exit=$?" >> "$FAIL_LOG"
+    fi
+
+    # Réinitialise
+    unset zsh_last_command
+  fi
+}
