@@ -1,63 +1,70 @@
-# === Historique enrichi ZSH avec contexte dynamique et erreurs ===
+# === Zsh enrichi : historique avec #tags, mais interaction propre ===
 
-# Configuration de l’historique Zsh
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=10000
 export SAVEHIST=20000
-FAIL_LOG="$HOME/.zsh_failures.log"
 
 setopt APPEND_HISTORY
-setopt SHARE_HISTORY
+setopt INC_APPEND_HISTORY
 setopt EXTENDED_HISTORY
 setopt HIST_IGNORE_SPACE
-unsetopt HIST_IGNORE_ALL_DUPS  # désactivé pour garder tous les ls -la
 
-# Variable temporaire
+# Pas de dups supprimés volontairement
+unsetopt HIST_IGNORE_ALL_DUPS
+
+# Variables pour suivi
 zsh_last_command=""
+zsh_last_context=""
 zsh_last_exit_code=0
 
-# Fonction de détection du contexte (évaluée dynamiquement à chaque fois)
+# Détection dynamique du contexte
 zsh_context() {
   if [[ -n "$CONTAINER_ID" ]]; then
-    if [[ "$CONTAINER_ID" == "host" ]]; then
-      echo "host-distro"
-    else
-      echo "$CONTAINER_ID"
-    fi
+    [[ "$CONTAINER_ID" == "host" ]] && echo "host-distro" || echo "$CONTAINER_ID"
   else
     echo "host"
   fi
 }
 
-# Capture la commande juste avant son exécution
+# Capture commande avant exécution
 preexec() {
   zsh_last_command="$1"
 }
 
-# Juste après exécution de la commande
+# Hook principal : enrichit ~/.zsh_history
 precmd() {
   local CONTEXT=$(zsh_context)
   local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-  local HISTORY_TAG="# $TIMESTAMP - $CONTEXT"
-  local LAST_LINE="$(tail -n 1 "$HISTFILE" 2>/dev/null || echo "")"
+  local EXIT_CODE=$?
 
+  # Contexte changé ?
+  if [[ "$CONTEXT" != "$zsh_last_context" ]]; then
+    print -r -- "# $CONTEXT" >> "$HISTFILE"
+    zsh_last_context="$CONTEXT"
+  fi
+
+  # Ajoute timestamp + commande
   if [[ -n "$zsh_last_command" ]]; then
-    # Ajoute le tag s'il change
-    if [[ "$LAST_LINE" != "$HISTORY_TAG" ]]; then
-      echo "$HISTORY_TAG" >> "$HISTFILE"
-    fi
-
-    echo "$zsh_last_command" >> "$HISTFILE"
-
-    # Vérifie le code retour réel de la commande précédente
-    zsh_last_exit_code=$?
-
-    if [[ "$zsh_last_exit_code" -ne 0 ]]; then
-      echo "[$TIMESTAMP] [$CONTEXT] $zsh_last_command  # exit=$zsh_last_exit_code" >> "$FAIL_LOG"
-    fi
+    print -r -- "# $TIMESTAMP (exit=$EXIT_CODE)" >> "$HISTFILE"
+    print -r -- "$zsh_last_command" >> "$HISTFILE"
   fi
 
   # Réinitialise
   unset zsh_last_command
-  zsh_last_exit_code=0
 }
+
+# === Important : charger l’historique en filtrant les lignes commençant par #
+autoload -Uz add-zsh-hook
+
+add-zsh-hook -Uz zs_filter_history_on_load() {
+  # Recharge HISTFILE, en supprimant lignes commençant par #
+  fc -R "$HISTFILE"
+  HISTNO=1
+  local -a filtered
+  for entry in ${(f)"$(fc -l 1)"}; do
+    [[ "$entry" != \#* ]] && filtered+="$entry"
+  done
+  print -rl -- $filtered >| "$HISTFILE.filtered"
+  fc -p "$HISTFILE.filtered" "$HISTFILE.filtered" "$HISTFILE.filtered"
+}
+zs_filter_history_on_load
