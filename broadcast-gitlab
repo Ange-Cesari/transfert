@@ -1,0 +1,163 @@
+#!/bin/bash
+
+# ==== Configurable Variables ====
+CONFIG_FILE="config.yaml"
+DOMAIN="domain.local"
+MESSAGE=""
+START_DATE=""
+END_DATE=""
+DISMISSIBLE="true"
+
+# Scope Configuration (used if no CLI args for scope)
+# Examples:
+# SCOPE="--all"
+# SCOPE="--zone toto"
+# SCOPE="--zones toto:t1,t2 titi:ti1"
+SCOPE="--all"
+# ================================
+
+usage() {
+    echo "Usage: $0 [--all | --zone <zone> | --zones <zone1:sub1,sub2 zone2:sub3>] [--message \"Message\"] [--start \"YYYY-MM-DDTHH:MM:SSZ\"] [--end \"YYYY-MM-DDTHH:MM:SSZ\"] [--dismissible true|false] [--domain domain.local]"
+    exit 1
+}
+
+check_requirements() {
+    if ! command -v yq &>/dev/null; then
+        echo "Error: 'yq' is required. Install it with 'sudo apt install yq' or 'brew install yq'."
+        exit 1
+    fi
+}
+
+send_broadcast() {
+    local zone=$1
+    local subzone=$2
+    local token=$3
+    local url="https://gitlab.${subzone}.${zone}.${DOMAIN}/api/v4/broadcast_messages"
+
+    data=$(jq -n \
+        --arg msg "$MESSAGE" \
+        --arg start "$START_DATE" \
+        --arg end "$END_DATE" \
+        --argjson dismissible "$DISMISSIBLE" \
+        '{message: $msg, starts_at: $start, ends_at: $end, dismissable: $dismissible}')
+
+    response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
+        -H "PRIVATE-TOKEN: $token" \
+        -H "Content-Type: application/json" \
+        -d "$data")
+
+    if [[ "$response" -ne 201 ]]; then
+        echo "Error: Failed to send broadcast to ${zone}/${subzone} (HTTP $response)"
+    else
+        echo "Success: Broadcast sent to ${zone}/${subzone}"
+    fi
+}
+
+precheck() {
+    for pair in "${TARGETS[@]}"; do
+        IFS=":" read -r zone subzones <<< "$pair"
+        if ! yq e ".zones.$zone" "$CONFIG_FILE" &>/dev/null; then
+            echo "Error: Zone '$zone' not found in configuration."
+            exit 1
+        fi
+        IFS=',' read -ra subs <<< "$subzones"
+        for sub in "${subs[@]}"; do
+            if ! yq e ".zones.$zone.$sub" "$CONFIG_FILE" &>/dev/null; then
+                echo "Error: Subzone '$sub' not found under zone '$zone' in configuration."
+                exit 1
+            fi
+        done
+    done
+}
+
+parse_scope() {
+    local args=($SCOPE)
+    parse_args "${args[@]}"
+}
+
+parse_args() {
+    TARGETS=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --all)
+                for zone in $(yq e '.zones | keys | .[]' "$CONFIG_FILE"); do
+                    subs=$(yq e ".zones.$zone | keys | join(\",\")" "$CONFIG_FILE")
+                    TARGETS+=("$zone:$subs")
+                done
+                shift
+                ;;
+            --zone)
+                zone=$2
+                subs=$(yq e ".zones.$zone | keys | join(\",\")" "$CONFIG_FILE")
+                if [[ -z "$subs" ]]; then
+                    echo "Error: Zone '$zone' not found in configuration."
+                    exit 1
+                fi
+                TARGETS+=("$zone:$subs")
+                shift 2
+                ;;
+            --zones)
+                shift
+                while [[ $# -gt 0 && ! $1 =~ ^-- ]]; do
+                    TARGETS+=("$1")
+                    shift
+                done
+                ;;
+            --message)
+                MESSAGE="$2"
+                shift 2
+                ;;
+            --start)
+                START_DATE="$2"
+                shift 2
+                ;;
+            --end)
+                END_DATE="$2"
+                shift 2
+                ;;
+            --dismissible)
+                DISMISSIBLE="$2"
+                shift 2
+                ;;
+            --domain)
+                DOMAIN="$2"
+                shift 2
+                ;;
+            *)
+                usage
+                ;;
+        esac
+    done
+}
+
+main() {
+    check_requirements
+
+    # If no CLI args for scope, use SCOPE variable
+    if [[ "$#" -eq 0 ]]; then
+        if [[ -z "$SCOPE" ]]; then
+            echo "Error: No scope defined. Use CLI or set SCOPE variable."
+            usage
+        fi
+        parse_scope
+    else
+        parse_args "$@"
+    fi
+
+    # Validate required variables
+    [[ -z "$MESSAGE" ]] && { echo "Error: MESSAGE is not defined. Set it in the script or via CLI."; exit 1; }
+    [[ -z "$DOMAIN" ]] && { echo "Error: DOMAIN is not defined."; exit 1; }
+
+    precheck
+
+    for pair in "${TARGETS[@]}"; do
+        IFS=":" read -r zone subzones <<< "$pair"
+        IFS=',' read -ra subs <<< "$subzones"
+        for sub in "${subs[@]}"; do
+            token=$(yq e ".zones.$zone.$sub" "$CONFIG_FILE")
+            send_broadcast "$zone" "$sub" "$token"
+        done
+    done
+}
+
+main "$@"
