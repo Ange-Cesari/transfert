@@ -11,13 +11,13 @@ DISMISSIBLE="true"
 # Scope Configuration (used if no CLI args for scope)
 # Examples:
 # SCOPE="--all"
-# SCOPE="--zone toto"
-# SCOPE="--zones toto:t1,t2 titi:ti1"
+# SCOPE="--tenant toto"
+# SCOPE="--tenants toto:t1,t2 titi:ti1"
 SCOPE="--all"
 # ================================
 
 usage() {
-    echo "Usage: $0 [--all | --zone <zone> | --zones <zone1:sub1,sub2 zone2:sub3>] [--message \"Message\"] [--start \"YYYY-MM-DDTHH:MM:SSZ\"] [--end \"YYYY-MM-DDTHH:MM:SSZ\"] [--dismissible true|false] [--domain domain.local]"
+    echo "Usage: $0 [--all | --tenant <tenant> | --tenants <tenant1:ws1,ws2 tenant2:ws3>] [--message "Message"] [--start "YYYY-MM-DDTHH:MM:SSZ"] [--end "YYYY-MM-DDTHH:MM:SSZ"] [--dismissible true|false] [--domain domain.local]"
     exit 1
 }
 
@@ -29,41 +29,33 @@ check_requirements() {
 }
 
 send_broadcast() {
-    local zone=$1
-    local subzone=$2
+    local tenant=$1
+    local workspace=$2
     local token=$3
-    local url="https://gitlab.${subzone}.${zone}.${DOMAIN}/api/v4/broadcast_messages"
+    local url="https://gitlab.${workspace}.${tenant}.${DOMAIN}/api/v4/broadcast_messages"
 
-    data=$(jq -n \
-        --arg msg "$MESSAGE" \
-        --arg start "$START_DATE" \
-        --arg end "$END_DATE" \
-        --argjson dismissible "$DISMISSIBLE" \
-        '{message: $msg, starts_at: $start, ends_at: $end, dismissable: $dismissible}')
+    data=$(jq -n         --arg msg "$MESSAGE"         --arg start "$START_DATE"         --arg end "$END_DATE"         --argjson dismissible "$DISMISSIBLE"         '{message: $msg, starts_at: $start, ends_at: $end, dismissable: $dismissible}')
 
-    response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
-        -H "PRIVATE-TOKEN: $token" \
-        -H "Content-Type: application/json" \
-        -d "$data")
+    response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url"         -H "PRIVATE-TOKEN: $token"         -H "Content-Type: application/json"         -d "$data")
 
     if [[ "$response" -ne 201 ]]; then
-        echo "Error: Failed to send broadcast to ${zone}/${subzone} (HTTP $response)"
+        echo "Error: Failed to send broadcast to ${tenant}/${workspace} (HTTP $response)"
     else
-        echo "Success: Broadcast sent to ${zone}/${subzone}"
+        echo "Success: Broadcast sent to ${tenant}/${workspace}"
     fi
 }
 
 precheck() {
-    for pair in "${TARGETS[@]}"; do
-        IFS=":" read -r zone subzones <<< "$pair"
-        if ! yq e ".zones.$zone" "$CONFIG_FILE" &>/dev/null; then
-            echo "Error: Zone '$zone' not found in configuration."
+    for pair in "${TARGET_WORKSPACES[@]}"; do
+        IFS=":" read -r tenant workspaces <<< "$pair"
+        if ! yq e ".tenants.$tenant" "$CONFIG_FILE" &>/dev/null; then
+            echo "Error: Tenant '$tenant' not found in configuration."
             exit 1
         fi
-        IFS=',' read -ra subs <<< "$subzones"
-        for sub in "${subs[@]}"; do
-            if ! yq e ".zones.$zone.$sub" "$CONFIG_FILE" &>/dev/null; then
-                echo "Error: Subzone '$sub' not found under zone '$zone' in configuration."
+        IFS=',' read -ra ws_array <<< "$workspaces"
+        for ws in "${ws_array[@]}"; do
+            if ! yq e ".tenants.$tenant.$ws" "$CONFIG_FILE" &>/dev/null; then
+                echo "Error: Workspace '$ws' not found under tenant '$tenant' in configuration."
                 exit 1
             fi
         done
@@ -76,30 +68,30 @@ parse_scope() {
 }
 
 parse_args() {
-    TARGETS=()
+    TARGET_WORKSPACES=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --all)
-                for zone in $(yq e '.zones | keys | .[]' "$CONFIG_FILE"); do
-                    subs=$(yq e ".zones.$zone | keys | join(\",\")" "$CONFIG_FILE")
-                    TARGETS+=("$zone:$subs")
+                for tenant in $(yq e '.tenants | keys | .[]' "$CONFIG_FILE"); do
+                    workspaces=$(yq e ".tenants.$tenant | keys | join(",")" "$CONFIG_FILE")
+                    TARGET_WORKSPACES+=("$tenant:$workspaces")
                 done
                 shift
                 ;;
-            --zone)
-                zone=$2
-                subs=$(yq e ".zones.$zone | keys | join(\",\")" "$CONFIG_FILE")
-                if [[ -z "$subs" ]]; then
-                    echo "Error: Zone '$zone' not found in configuration."
+            --tenant)
+                tenant=$2
+                workspaces=$(yq e ".tenants.$tenant | keys | join(",")" "$CONFIG_FILE")
+                if [[ -z "$workspaces" ]]; then
+                    echo "Error: Tenant '$tenant' not found in configuration."
                     exit 1
                 fi
-                TARGETS+=("$zone:$subs")
+                TARGET_WORKSPACES+=("$tenant:$workspaces")
                 shift 2
                 ;;
-            --zones)
+            --tenants)
                 shift
                 while [[ $# -gt 0 && ! $1 =~ ^-- ]]; do
-                    TARGETS+=("$1")
+                    TARGET_WORKSPACES+=("$1")
                     shift
                 done
                 ;;
@@ -133,7 +125,6 @@ parse_args() {
 main() {
     check_requirements
 
-    # If no CLI args for scope, use SCOPE variable
     if [[ "$#" -eq 0 ]]; then
         if [[ -z "$SCOPE" ]]; then
             echo "Error: No scope defined. Use CLI or set SCOPE variable."
@@ -144,18 +135,17 @@ main() {
         parse_args "$@"
     fi
 
-    # Validate required variables
     [[ -z "$MESSAGE" ]] && { echo "Error: MESSAGE is not defined. Set it in the script or via CLI."; exit 1; }
     [[ -z "$DOMAIN" ]] && { echo "Error: DOMAIN is not defined."; exit 1; }
 
     precheck
 
-    for pair in "${TARGETS[@]}"; do
-        IFS=":" read -r zone subzones <<< "$pair"
-        IFS=',' read -ra subs <<< "$subzones"
-        for sub in "${subs[@]}"; do
-            token=$(yq e ".zones.$zone.$sub" "$CONFIG_FILE")
-            send_broadcast "$zone" "$sub" "$token"
+    for pair in "${TARGET_WORKSPACES[@]}"; do
+        IFS=":" read -r tenant workspaces <<< "$pair"
+        IFS=',' read -ra ws_array <<< "$workspaces"
+        for ws in "${ws_array[@]}"; do
+            token=$(yq e ".tenants.$tenant.$ws" "$CONFIG_FILE")
+            send_broadcast "$tenant" "$ws" "$token"
         done
     done
 }
