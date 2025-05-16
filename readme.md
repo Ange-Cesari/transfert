@@ -5,7 +5,7 @@ Ce script Bash permet de diffuser des messages de broadcast sur plusieurs instan
 ## 📦 Contenu
 
 - `broadcast.sh` : Script Bash principal.
-- `config.yaml` : Fichier de configuration des zones et sous-zones.
+- `config.yaml` : Fichier de configuration des tenants et sous-tenants.
 
 ---
 
@@ -14,7 +14,7 @@ Ce script Bash permet de diffuser des messages de broadcast sur plusieurs instan
 ### Variables Modifiables dans le Script (`broadcast.sh`)
 
 \`\`\`bash
-CONFIG_FILE="config.yaml"    # Chemin du fichier de configuration des zones
+CONFIG_FILE="config.yaml"    # Chemin du fichier de configuration des tenants
 DOMAIN="domain.local"        # Domaine utilisé pour construire les URLs GitLab
 MESSAGE=""                   # Message du broadcast (si vide, doit être défini via CLI)
 START_DATE=""                # Date de début (format ISO 8601)
@@ -25,18 +25,18 @@ DISMISSIBLE="true"           # true/false pour rendre la bannière dismissible
 SCOPE="--all"
 # Exemples :
 # SCOPE="--all"
-# SCOPE="--zone toto"
-# SCOPE="--zones toto:t1,t2 titi:ti1"
+# SCOPE="--tenant toto"
+# SCOPE="--tenants toto:t1,t2 titi:ti1"
 \`\`\`
 
 ---
 
 ### Fichier `config.yaml`
 
-Ce fichier définit les zones, sous-zones et les tokens d'authentification GitLab.
+Ce fichier définit les tenants, sous-tenants et les tokens d'authentification GitLab.
 
 \`\`\`yaml
-zones:
+tenants:
   toto:
     t1: "TOKEN_T1"
     t2: "TOKEN_T2"
@@ -47,8 +47,8 @@ zones:
     tu2: "TOKEN_TU2"
 \`\`\`
 
-- **zones** : Groupe logique de sous-zones.
-- **sous-zones** : Correspondent à des instances GitLab accessibles via \`https://gitlab.<subzone>.<zone>.<DOMAIN>\`.
+- **tenants** : Groupe logique de sous-tenants.
+- **sous-tenants** : Correspondent à des instances GitLab accessibles via \`https://gitlab.<workspacetenant>.<tenant>.<DOMAIN>\`.
 
 ---
 
@@ -70,9 +70,9 @@ zones:
 
 | Option         | Description                                    |
 |----------------|------------------------------------------------|
-| \`--all\`        | Envoie le message à toutes les zones/sous-zones |
-| \`--zone <zone>\`| Cible une zone spécifique                      |
-| \`--zones <zone1:sub1,sub2 ...>\` | Cible des sous-zones spécifiques |
+| \`--all\`        | Envoie le message à toutes les tenants/sous-tenants |
+| \`--tenant <tenant>\`| Cible une tenant spécifique                      |
+| \`--tenants <tenant1:workspace1,workspace2 ...>\` | Cible des sous-tenants spécifiques |
 | \`--message\`    | Contenu du message                             |
 | \`--start\`      | Date de début (ISO 8601)                       |
 | \`--end\`        | Date de fin (ISO 8601)                         |
@@ -88,14 +88,14 @@ zones:
 ./broadcast.sh --all --message "System maintenance tonight!"
 \`\`\`
 
-2. **Envoi à une zone spécifique :**
+2. **Envoi à une tenant spécifique :**
 \`\`\`bash
-./broadcast.sh --zone toto --message "Toto zone maintenance."
+./broadcast.sh --tenant toto --message "Toto tenant maintenance."
 \`\`\`
 
-3. **Envoi à des sous-zones précises :**
+3. **Envoi à des sous-tenants précises :**
 \`\`\`bash
-./broadcast.sh --zones "toto:t1,t2" "titi:ti1" --message "Partial downtime expected."
+./broadcast.sh --tenants "toto:t1,t2" "titi:ti1" --message "Partial downtime expected."
 \`\`\`
 
 ---
@@ -105,7 +105,7 @@ zones:
 - Si une variable est définie à la fois dans le script et via CLI, **la valeur CLI est prioritaire**.
 - Si aucune valeur n’est définie pour \`MESSAGE\`, le script refusera de s’exécuter.
 - Une pré-vérification est effectuée avant l’envoi des messages :  
-  - Si une zone ou une sous-zone n'existe pas dans \`config.yaml\`, le script s'arrête immédiatement avec un message d'erreur.
+  - Si une tenant ou une sous-tenant n'existe pas dans \`config.yaml\`, le script s'arrête immédiatement avec un message d'erreur.
 
 ---
 
