@@ -1,10 +1,9 @@
-zones:
-  toto:
-    t1: "<TOKEN_FOR_T1>"
-    t2: "<TOKEN_FOR_T2>"
-    t3: "<TOKEN_FOR_T3>"
-  titi:
-    ti1: "<TOKEN_FOR_TI1>"
-  tutu:
-    tu1: "<TOKEN_FOR_TU1>"
-    tu2: "<TOKEN_FOR_TU2>"
+tenants:
+  tenant1:
+    workspace1: "<TOKEN_FOR_WORKSPACE1>"
+    workspace2: "<TOKEN_FOR_WORKSPACE2>"
+  tenant2:
+    workspace1: "<TOKEN_FOR_WORKSPACE1>"
+  tenant3:
+    workspace1: "<TOKEN_FOR_WORKSPACE1>"
+    workspace2: "<TOKEN_FOR_WORKSPACE2>"
