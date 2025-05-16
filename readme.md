@@ -5,7 +5,7 @@ Ce script Bash permet de diffuser des messages de broadcast sur plusieurs instan
 ## 📦 Contenu
 
 - `broadcast.sh` : Script Bash principal.
-- `config.yaml` : Fichier de configuration des tenants et sous-tenants.
+- `config.yaml` : Fichier de configuration des tenants et workspaces.
 
 ---
 
@@ -33,7 +33,7 @@ SCOPE="--all"
 
 ### Fichier `config.yaml`
 
-Ce fichier définit les tenants, sous-tenants et les tokens d'authentification GitLab.
+Ce fichier définit les tenants, workspaces et les tokens d'authentification GitLab.
 
 \`\`\`yaml
 tenants:
@@ -47,8 +47,8 @@ tenants:
     tu2: "TOKEN_TU2"
 \`\`\`
 
-- **tenants** : Groupe logique de sous-tenants.
-- **sous-tenants** : Correspondent à des instances GitLab accessibles via \`https://gitlab.<workspacetenant>.<tenant>.<DOMAIN>\`.
+- **tenants** : Groupe logique de workspaces.
+- **workspaces** : Correspondent à des instances GitLab accessibles via \`https://gitlab.<workspacetenant>.<tenant>.<DOMAIN>\`.
 
 ---
 
@@ -70,9 +70,9 @@ tenants:
 
 | Option         | Description                                    |
 |----------------|------------------------------------------------|
-| \`--all\`        | Envoie le message à toutes les tenants/sous-tenants |
+| \`--all\`        | Envoie le message à toutes les tenants/workspaces |
 | \`--tenant <tenant>\`| Cible une tenant spécifique                      |
-| \`--tenants <tenant1:workspace1,workspace2 ...>\` | Cible des sous-tenants spécifiques |
+| \`--tenants <tenant1:workspace1,workspace2 ...>\` | Cible des workspaces spécifiques |
 | \`--message\`    | Contenu du message                             |
 | \`--start\`      | Date de début (ISO 8601)                       |
 | \`--end\`        | Date de fin (ISO 8601)                         |
@@ -93,7 +93,7 @@ tenants:
 ./broadcast.sh --tenant toto --message "Toto tenant maintenance."
 \`\`\`
 
-3. **Envoi à des sous-tenants précises :**
+3. **Envoi à des workspaces précises :**
 \`\`\`bash
 ./broadcast.sh --tenants "toto:t1,t2" "titi:ti1" --message "Partial downtime expected."
 \`\`\`
@@ -105,7 +105,7 @@ tenants:
 - Si une variable est définie à la fois dans le script et via CLI, **la valeur CLI est prioritaire**.
 - Si aucune valeur n’est définie pour \`MESSAGE\`, le script refusera de s’exécuter.
 - Une pré-vérification est effectuée avant l’envoi des messages :  
-  - Si une tenant ou une sous-tenant n'existe pas dans \`config.yaml\`, le script s'arrête immédiatement avec un message d'erreur.
+  - Si une tenant ou une workspace n'existe pas dans \`config.yaml\`, le script s'arrête immédiatement avec un message d'erreur.
 
 ---
 
