@@ -1,0 +1,221 @@
+# Déploiement d’un GitLab Runner dans Podman avec support Flatpak – Debian 12
+
+Cette documentation guide pas à pas l’installation et l’explication de chaque commande pour comprendre **ce qu’on fait et pourquoi**.
+
+---
+
+## 🎯 Objectif
+
+Configurer une VM Debian 12 pour héberger un **GitLab Runner dans Podman**, capable de :
+
+- S'enregistrer auprès d'une instance GitLab
+- Exécuter des jobs de CI/CD
+- Lancer des conteneurs via Podman (`Podman-outside-of-Podman`)
+- Supporter des builds Flatpak (via `flatpak` et `flatpak-builder`)
+
+---
+
+## 🧾 Prérequis
+
+- Une VM Debian 12 (accès root ou `sudo`)
+- Podman déjà installé (`podman --version`)
+- Connexion à Internet
+- Accès à une instance GitLab avec un projet
+- Un token d’enregistrement de runner (projet ou global)
+
+---
+
+## 🧱 Étape 1 – Installer les outils nécessaires
+
+```bash
+sudo apt update
+sudo apt install -y \
+  podman \
+  uidmap \
+  slirp4netns \
+  fuse-overlayfs \
+  flatpak \
+  flatpak-builder \
+  curl \
+  git \
+  gnupg \
+  lsb-release \
+  ca-certificates \
+  software-properties-common
+```
+
+### 💡 Pourquoi ?
+
+- `podman`, `uidmap`, `slirp4netns`, `fuse-overlayfs` : nécessaires pour faire tourner des conteneurs rootless.
+- `flatpak`, `flatpak-builder` : outils de base pour builder des applications Flatpak.
+- `curl`, `git`, `gnupg`, etc. : outils usuels pour CI/CD.
+
+---
+
+## 📦 Étape 2 – Créer un volume de configuration GitLab Runner
+
+```bash
+podman volume create gitlab-runner-config
+```
+
+### 💡 Pourquoi ?
+
+Un volume Podman permet de stocker les fichiers de configuration du runner (`/etc/gitlab-runner`) **de manière persistante**, même si le conteneur est supprimé.
+
+---
+
+## 🔌 Étape 3 – Activer le socket Podman
+
+```bash
+sudo systemctl enable --now podman.socket
+```
+
+### 💡 Pourquoi ?
+
+Cette commande démarre un **daemon socket** qui permet à d’autres programmes (ici : le GitLab Runner) de communiquer avec Podman via `/run/podman/podman.sock`.
+
+---
+
+## 📥 Étape 4 – Télécharger l’image GitLab Runner
+
+```bash
+podman pull gitlab/gitlab-runner:latest
+```
+
+### 💡 Pourquoi ?
+
+On utilise l’image officielle de GitLab Runner, qui contient le binaire `gitlab-runner` prêt à l’emploi.
+
+---
+
+## 🪝 Étape 5 – Enregistrer le runner
+
+```bash
+podman run --rm -it \
+  -v gitlab-runner-config:/etc/gitlab-runner \
+  -v /run/podman/podman.sock:/run/podman/podman.sock \
+  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+  gitlab/gitlab-runner:latest register
+```
+
+### 💡 Pourquoi ?
+
+- `--rm -it` : conteneur temporaire interactif
+- `-v gitlab-runner-config:/etc/gitlab-runner` : volume pour stocker la config
+- `-v /run/podman/podman.sock:/...` : on **monte le socket de Podman** pour permettre au runner d'exécuter des conteneurs
+- `-e CONTAINER_HOST=...` : permet au runner de connaître l’URL du socket
+
+Pendant l'exécution, le runner vous demandera :
+
+- L’URL GitLab (ex: `https://gitlab.example.com`)
+- Le token d’enregistrement
+- Un nom/description pour identifier ce runner
+- Les tags (ex: `flatpak`, `debian12`)
+- Le type d’exécuteur : répondez `shell`
+
+---
+
+## 🚀 Étape 6 – Lancer le runner en mode service
+
+```bash
+podman run -d --name gitlab-runner \
+  --restart=always \
+  -v gitlab-runner-config:/etc/gitlab-runner \
+  -v /run/podman/podman.sock:/run/podman/podman.sock \
+  -v /etc/passwd:/etc/passwd:ro \
+  -v /etc/group:/etc/group:ro \
+  -v /etc/subuid:/etc/subuid:ro \
+  -v /etc/subgid:/etc/subgid:ro \
+  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+  gitlab/gitlab-runner:latest
+```
+
+### 💡 Pourquoi ?
+
+- `-d` : démarre le conteneur en arrière-plan
+- `--restart=always` : redémarrage automatique après reboot ou plantage
+- Montages `/etc/{passwd,group,subuid,subgid}` : nécessaires pour que Podman comprenne l’utilisateur dans le conteneur
+- `-e CONTAINER_HOST` : configure le client Podman dans le runner
+
+---
+
+## 🧪 Étape 7 – Tester un job GitLab
+
+Fichier `.gitlab-ci.yml` :
+
+```yaml
+flatpak-test:
+  tags: [flatpak]
+  script:
+    - echo "Podman version: $(podman --version)"
+    - echo "Flatpak version: $(flatpak --version)"
+    - podman run --rm docker.io/library/alpine echo "OK"
+```
+
+### 💡 Pourquoi ?
+
+Ce test vérifie :
+- que `podman` fonctionne dans les jobs
+- que `flatpak` est accessible
+- que le socket de Podman est bien fonctionnel depuis le conteneur du runner
+
+---
+
+## 🧰 Étape 8 – (Optionnel) Image personnalisée avec Flatpak
+
+Dockerfile :
+
+```Dockerfile
+FROM debian:12
+RUN apt update && \
+    apt install -y flatpak flatpak-builder podman fuse-overlayfs slirp4netns && \
+    apt clean
+```
+
+### 💡 Pourquoi ?
+
+Permet d’avoir une image déjà prête avec tous les outils nécessaires pour les jobs Flatpak, plutôt que de les installer à chaque job.
+
+---
+
+## 🛠️ Étape 9 – Lancer le runner comme service systemd (option)
+
+```bash
+podman generate systemd --name gitlab-runner --files --new
+sudo mv container-gitlab-runner.service /etc/systemd/system/
+sudo systemctl enable --now container-gitlab-runner.service
+```
+
+### 💡 Pourquoi ?
+
+Permet de s’assurer que le GitLab Runner est **re-démarré automatiquement au boot** du système.
+
+---
+
+## 🔐 Étape 10 – Bonnes pratiques de sécurité
+
+- Utiliser des **tags** pour contrôler quels jobs utilisent ce runner
+- Ne pas exposer ce runner à des projets tiers si possible
+- Valider les scripts utilisés dans les jobs (éviter `rm -rf /` 😅)
+- Restreindre l’accès au socket Podman à des utilisateurs de confiance
+
+---
+
+## ✅ Résumé des points clés
+
+| Élément                  | Détail                                               |
+|--------------------------|------------------------------------------------------|
+| OS                       | Debian 12                                            |
+| Conteneur runner         | gitlab/gitlab-runner                                 |
+| Executor                 | `shell`                                              |
+| Socket monté             | `/run/podman/podman.sock`                            |
+| Flatpak supporté         | Via VM ou image personnalisée                        |
+| Tags recommandés         | `flatpak`, `debian12`, `podman`                      |
+
+---
+
+## 📚 Références
+
+- [GitLab Runner](https://docs.gitlab.com/runner/)
+- [Podman](https://podman.io/)
+- [Flatpak](https://flatpak.org/)
